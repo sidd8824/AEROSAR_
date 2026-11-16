@@ -387,3 +387,11 @@ button:disabled { cursor: default; }
 .scenario-bars meter::-webkit-meter-bar { background: #f0eae1; border: 0; border-radius: 4px; }
 .scenario-bars meter::-webkit-meter-optimum-value { background: #a5361d; border-radius: 4px; }
 .scenario-bars meter::-moz-meter-bar { background: #a5361d; border-radius: 4px; }
+
+.map-source-notice {
+  position: absolute; z-index: 600; bottom: 37px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 8px; width: max-content; max-width: calc(100% - 95px);
+  padding: 5px 9px; background: #fff; border: 1px solid var(--line); border-radius: 6px;
+  font-size: 11px; color: var(--text-muted);
+}
+.map-source-notice button { flex: none; font-size: 18px; line-height: 1; }

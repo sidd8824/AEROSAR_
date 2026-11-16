@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { MapContainer, TileLayer, Polygon, Polyline, Marker, Circle, ScaleControl, ZoomControl, useMap, Tooltip as LeafletTooltip } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import type { CalculationResult } from '@/types';
+import type { CalculationResult, LatLng } from '@/types';
 import { AlertTriangle, RefreshCw, Layers, Play } from 'lucide-react';
 
 interface SARMapProps {
@@ -10,14 +10,16 @@ interface SARMapProps {
   fitTrigger: number;
   centerTrigger: number;
   flyTrigger: number;
+  draftPosition: LatLng | null;
   onMapClick?: (lat: number, lon: number) => void;
 }
 
-type LayerKey = 'osm' | 'satellite' | 'dark';
+type RasterLayer = 'osm' | 'satellite';
+type LayerKey = RasterLayer | 'vector';
 
-const LAYERS: Record<LayerKey, { url: string; attribution: string; subdomains: string; maxZoom: number }> = {
+const LAYERS: Record<RasterLayer, { url: string; attribution: string; subdomains: string; maxZoom: number }> = {
   osm: {
-    url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     subdomains: 'abc',
     maxZoom: 19,
@@ -28,12 +30,7 @@ const LAYERS: Record<LayerKey, { url: string; attribution: string; subdomains: s
     subdomains: '',
     maxZoom: 19,
   },
-  dark: {
-    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
-    subdomains: 'abcd',
-    maxZoom: 19,
-  },
+
 };
 
 // Custom aircraft icon using divIcon
@@ -158,13 +155,31 @@ function ClickHandler({ onClick }: { onClick: (lat: number, lon: number) => void
   return null;
 }
 
-function TileErrorHandler({ onError }: { onError: () => void }) {
+function VectorBasemap({ onUnavailable }: { onUnavailable: () => void }) {
   const map = useMap();
+
   useEffect(() => {
-    const handler = () => onError();
-    map.on('tileerror', handler);
-    return () => { map.off('tileerror', handler); };
-  }, [map, onError]);
+    let active = true;
+    let ready = false;
+    let layer: L.Layer | undefined;
+    const fallback = () => { if (active && !ready) onUnavailable(); };
+    const timeout = window.setTimeout(fallback, 12000);
+
+    void import('./vectorBasemap').then(({ addVectorBasemap }) => {
+      if (!active) return;
+      layer = addVectorBasemap(map, () => {
+        ready = true;
+        window.clearTimeout(timeout);
+      }, fallback, () => { if (active) onUnavailable(); });
+    }).catch(fallback);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timeout);
+      layer?.remove();
+    };
+  }, [map, onUnavailable]);
+
   return null;
 }
 
@@ -289,33 +304,40 @@ function AircraftFlyAnimation({
   return null;
 }
 
-export default function SARMap({ result, fitTrigger, centerTrigger, flyTrigger, onMapClick }: SARMapProps) {
+export default function SARMap({ result, fitTrigger, centerTrigger, flyTrigger, draftPosition, onMapClick }: SARMapProps) {
   const defaultCenter: [number, number] = [36.852, -76.293];
-  const [activeLayer, setActiveLayer] = useState<LayerKey>('satellite');
+  const [activeLayer, setActiveLayer] = useState<LayerKey>('vector');
   const [showLayerSwitcher, setShowLayerSwitcher] = useState(false);
   const [tileError, setTileError] = useState(false);
-  const [clickPos, setClickPos] = useState<[number, number] | null>(null);
+  const [vectorUnavailable, setVectorUnavailable] = useState(false);
 
-  const layer = LAYERS[activeLayer];
+  const layer = activeLayer === 'vector' ? null : LAYERS[activeLayer];
 
   const handleTileError = useCallback(() => {
     setTileError(true);
   }, []);
 
+  const handleVectorUnavailable = useCallback(() => {
+    setActiveLayer('satellite');
+    setVectorUnavailable(true);
+    setTileError(false);
+  }, []);
+
+  const handleTileLoad = useCallback(() => setTileError(false), []);
   const handleRetryTiles = useCallback(() => {
     setTileError(false);
-    setActiveLayer((prev) => (prev === 'satellite' ? 'osm' : prev === 'osm' ? 'dark' : 'satellite'));
+    setVectorUnavailable(false);
+    setActiveLayer((previous) => previous === 'satellite' ? 'osm' : 'satellite');
   }, []);
 
   const handleMapClick = useCallback((lat: number, lon: number) => {
-    setClickPos([lat, lon]);
     onMapClick?.(lat, lon);
   }, [onMapClick]);
 
   const layerLabels: Record<LayerKey, string> = {
+    vector: 'Street · Vector',
     satellite: 'Satellite',
-    osm: 'Street Map',
-    dark: 'Dark Mode',
+    osm: 'Street · Raster',
   };
 
   return (
@@ -329,29 +351,28 @@ export default function SARMap({ result, fitTrigger, centerTrigger, flyTrigger, 
         attributionControl={true}
         worldCopyJump={true}
       >
-        <TileLayer
+        {layer ? <TileLayer
           key={activeLayer}
           url={layer.url}
           attribution={layer.attribution}
           subdomains={layer.subdomains || 'abc'}
           maxZoom={layer.maxZoom}
-          detectRetina={true}
-        />
+          eventHandlers={{ tileerror: handleTileError, tileload: handleTileLoad }}
+        /> : <VectorBasemap onUnavailable={handleVectorUnavailable} />}
         <ZoomControl position="bottomleft" />
         <ScaleControl position="bottomright" imperial={false} />
         <MapResizer />
         <ClickHandler onClick={handleMapClick} />
-        <TileErrorHandler onError={handleTileError} />
         <FitBounds result={result} trigger={fitTrigger} />
         <CenterOnLKP result={result} trigger={centerTrigger} />
         {result && (
           <AircraftFlyAnimation result={result} trigger={flyTrigger} />
         )}
 
-        {clickPos && (
-          <Marker position={clickPos} icon={makeClickIcon()}>
+        {draftPosition && (
+          <Marker position={[draftPosition.lat, draftPosition.lon]} icon={makeClickIcon()}>
             <LeafletTooltip sticky>
-              {clickPos[0].toFixed(4)}, {clickPos[1].toFixed(4)}
+              {draftPosition.lat.toFixed(4)}, {draftPosition.lon.toFixed(4)}
             </LeafletTooltip>
           </Marker>
         )}
@@ -470,10 +491,11 @@ export default function SARMap({ result, fitTrigger, centerTrigger, flyTrigger, 
         </button>
         {showLayerSwitcher && (
           <div className="absolute top-full mt-1 left-0 bg-panel/95 backdrop-blur border border-subtle rounded-md shadow-elevated overflow-hidden min-w-[120px]">
-            {(Object.keys(LAYERS) as LayerKey[]).map((key) => (
+            {(Object.keys(layerLabels) as LayerKey[]).map((key) => (
               <button
                 key={key}
-                onClick={() => { setActiveLayer(key); setShowLayerSwitcher(false); setTileError(false); }}
+                aria-pressed={activeLayer === key}
+                onClick={() => { setActiveLayer(key); setShowLayerSwitcher(false); setTileError(false); setVectorUnavailable(false); }}
                 className={`w-full text-left px-3 py-2 text-xs transition-colors ${
                   activeLayer === key
                     ? 'bg-cyan-dim text-cyan'
@@ -487,6 +509,12 @@ export default function SARMap({ result, fitTrigger, centerTrigger, flyTrigger, 
         )}
       </div>
 
+      {vectorUnavailable && !tileError && (
+        <div className="map-source-notice" role="status">
+          Vector streets unavailable. Showing satellite imagery.
+          <button type="button" onClick={() => setVectorUnavailable(false)} aria-label="Dismiss map notice">×</button>
+        </div>
+      )}
       {tileError && (
         <div className="absolute bottom-12 left-1/2 -translate-x-1/2 z-[1000] flex items-center gap-3 px-4 py-2.5 bg-panel/95 backdrop-blur border border-amber/30 rounded-lg shadow-elevated">
           <AlertTriangle className="w-4 h-4 text-amber flex-shrink-0" />
