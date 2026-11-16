@@ -1,16 +1,12 @@
 import type { MissionInputs } from '@/types';
-import { useCallback } from 'react';
-import { Calculator, Rocket, RotateCcw, Info, MapPin, Wind, Plane, AlertTriangle } from 'lucide-react';
-import { speedLabel } from '@/lib/calculations';
+import { cloneElement, useId, type ReactElement } from 'react';
+import { Crosshair, MapPin, Wind, Plane, AlertTriangle } from 'lucide-react';
 
 interface MissionInputFormProps {
   inputs: MissionInputs;
   errors: Record<string, string>;
   onChange: (field: keyof MissionInputs, value: string | number) => void;
   onCalculate: () => void;
-  onDemo: () => void;
-  onReset: () => void;
-  calculating: boolean;
 }
 
 function Field({
@@ -26,26 +22,28 @@ function Field({
   optional?: boolean;
   tooltip?: string;
   error?: string;
-  children: React.ReactNode;
+  children: ReactElement<{
+    id?: string;
+    'aria-invalid'?: boolean;
+    'aria-describedby'?: string;
+  }>;
 }) {
+  const id = useId();
   return (
     <div>
       <div className="flex items-center gap-1.5 mb-1">
-        <label className="text-xs font-medium text-muted">{label}</label>
+        <label htmlFor={id} className="text-xs font-medium text-muted">{label}</label>
         {required && <span className="text-[10px] text-critical">*</span>}
         {optional && <span className="text-[10px] text-faint">(optional)</span>}
-        {tooltip && (
-          <span className="relative group">
-            <Info className="w-3 h-3 text-faint cursor-help" />
-            <span className="absolute left-full ml-2 top-0 z-10 hidden group-hover:block w-48 p-2 bg-elevated border border-default rounded-md text-[10px] text-muted shadow-elevated">
-              {tooltip}
-            </span>
-          </span>
-        )}
       </div>
-      {children}
+      {tooltip && <span id={id + '-hint'} className="sr-only">{tooltip}</span>}
+      {cloneElement(children, {
+        id,
+        'aria-invalid': !!error,
+        'aria-describedby': [tooltip && id + '-hint', error && id + '-error'].filter(Boolean).join(' ') || undefined,
+      })}
       {error && (
-        <p className="mt-1 text-[10px] text-critical flex items-center gap-1">
+        <p id={id + '-error'} className="mt-1 text-xs text-critical flex items-center gap-1">
           <AlertTriangle className="w-3 h-3" /> {error}
         </p>
       )}
@@ -53,17 +51,12 @@ function Field({
   );
 }
 
-const inputClass = "w-full px-3 py-2 bg-input border border-subtle rounded-md text-sm text-primary placeholder-faint focus:outline-none focus:border-cyan/50 transition-colors";
+const inputClass = 'mission-field';
 
-export default function MissionInputForm({ inputs, errors, onChange, onCalculate, onDemo, onReset, calculating }: MissionInputFormProps) {
-  const handleNumChange = useCallback((field: keyof MissionInputs, value: string) => {
-    if (value === '') {
-      onChange(field, 0);
-    } else {
-      const n = parseFloat(value);
-      onChange(field, isNaN(n) ? 0 : n);
-    }
-  }, [onChange]);
+export default function MissionInputForm({ inputs, errors, onChange, onCalculate }: MissionInputFormProps) {
+  function handleNumChange(field: keyof MissionInputs, value: string) {
+    onChange(field, value === '' ? Number.NaN : Number(value));
+  }
 
   const formatLocalDT = (iso: string) => {
     if (!iso) return '';
@@ -77,7 +70,7 @@ export default function MissionInputForm({ inputs, errors, onChange, onCalculate
   };
 
   return (
-    <div className="bg-panel rounded-lg border border-subtle p-4 space-y-4 h-full overflow-y-auto">
+    <form className="mission-form" noValidate onSubmit={(event) => { event.preventDefault(); onCalculate(); }}>
       {/* Section: Last Known Position */}
       <div>
         <div className="flex items-center gap-2 mb-3">
@@ -89,7 +82,7 @@ export default function MissionInputForm({ inputs, errors, onChange, onCalculate
             <input
               type="number"
               step="any"
-              value={inputs.lat || ''}
+              value={Number.isNaN(inputs.lat) ? '' : inputs.lat}
               onChange={(e) => handleNumChange('lat', e.target.value)}
               className={inputClass}
               placeholder="36.852"
@@ -99,7 +92,7 @@ export default function MissionInputForm({ inputs, errors, onChange, onCalculate
             <input
               type="number"
               step="any"
-              value={inputs.lon || ''}
+              value={Number.isNaN(inputs.lon) ? '' : inputs.lon}
               onChange={(e) => handleNumChange('lon', e.target.value)}
               className={inputClass}
               placeholder="-76.293"
@@ -108,7 +101,7 @@ export default function MissionInputForm({ inputs, errors, onChange, onCalculate
         </div>
         <p className="mt-1.5 text-[10px] text-cyan/70 flex items-center gap-1">
           <MapPin className="w-3 h-3" />
-          Tip: Click anywhere on the map to set coordinates automatically.
+          Click the map to set latitude and longitude.
         </p>
         <div className="mt-3">
           <Field label="Timestamp (UTC)" required tooltip="Date and time of last contact in UTC" error={errors.timestamp}>
@@ -118,7 +111,7 @@ export default function MissionInputForm({ inputs, errors, onChange, onCalculate
               onChange={(e) => {
                 const val = e.target.value;
                 if (val) {
-                  onChange('timestamp', new Date(val).toISOString());
+                  onChange('timestamp', new Date(val + 'Z').toISOString());
                 } else {
                   onChange('timestamp', '');
                 }
@@ -128,12 +121,12 @@ export default function MissionInputForm({ inputs, errors, onChange, onCalculate
           </Field>
         </div>
         <div className="mt-3">
-          <Field label="Position Uncertainty (km)" required tooltip="Radius of positional uncertainty around last known position">
+          <Field label="Position Uncertainty (km)" required tooltip="Radius of positional uncertainty around last known position" error={errors.positionUncertaintyKm}>
             <input
               type="number"
               step="any"
               min="0"
-              value={inputs.positionUncertaintyKm || ''}
+              value={Number.isNaN(inputs.positionUncertaintyKm) ? '' : inputs.positionUncertaintyKm}
               onChange={(e) => handleNumChange('positionUncertaintyKm', e.target.value)}
               className={inputClass}
               placeholder="8"
@@ -156,7 +149,7 @@ export default function MissionInputForm({ inputs, errors, onChange, onCalculate
               type="number"
               min="0"
               max="359"
-              value={inputs.heading || ''}
+              value={Number.isNaN(inputs.heading) ? '' : inputs.heading}
               onChange={(e) => handleNumChange('heading', e.target.value)}
               className={inputClass}
               placeholder="75"
@@ -167,7 +160,7 @@ export default function MissionInputForm({ inputs, errors, onChange, onCalculate
               type="number"
               step="any"
               min="0"
-              value={inputs.endurance || ''}
+              value={Number.isNaN(inputs.endurance) ? '' : inputs.endurance}
               onChange={(e) => handleNumChange('endurance', e.target.value)}
               className={inputClass}
               placeholder="4.5"
@@ -180,7 +173,7 @@ export default function MissionInputForm({ inputs, errors, onChange, onCalculate
               type="number"
               step="any"
               min="0"
-              value={inputs.speed || ''}
+              value={Number.isNaN(inputs.speed) ? '' : inputs.speed}
               onChange={(e) => handleNumChange('speed', e.target.value)}
               className={inputClass}
               placeholder="145"
@@ -214,7 +207,7 @@ export default function MissionInputForm({ inputs, errors, onChange, onCalculate
               type="number"
               min="0"
               max="359"
-              value={inputs.windDirection || ''}
+              value={Number.isNaN(inputs.windDirection) ? '' : inputs.windDirection}
               onChange={(e) => handleNumChange('windDirection', e.target.value)}
               className={inputClass}
               placeholder="210"
@@ -225,7 +218,7 @@ export default function MissionInputForm({ inputs, errors, onChange, onCalculate
               type="number"
               step="any"
               min="0"
-              value={inputs.windSpeed || ''}
+              value={Number.isNaN(inputs.windSpeed) ? '' : inputs.windSpeed}
               onChange={(e) => handleNumChange('windSpeed', e.target.value)}
               className={inputClass}
               placeholder="22"
@@ -249,38 +242,7 @@ export default function MissionInputForm({ inputs, errors, onChange, onCalculate
 
       <div className="border-t border-subtle" />
 
-      {/* Actions */}
-      <div className="space-y-2">
-        <button
-          onClick={onCalculate}
-          disabled={calculating}
-          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-cyan text-base font-semibold rounded-md hover:bg-cyan/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-glow"
-          style={{ color: '#080D18' }}
-        >
-          <Calculator className="w-4 h-4" />
-          {calculating ? 'Calculating…' : 'Calculate Search Area'}
-        </button>
-        <button
-          onClick={onDemo}
-          disabled={calculating}
-          className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-elevated text-primary font-medium rounded-md border border-default hover:border-cyan/30 transition-colors disabled:opacity-50"
-        >
-          <Rocket className="w-4 h-4 text-cyan" />
-          Load Demo Mission
-        </button>
-        <button
-          onClick={onReset}
-          disabled={calculating}
-          className="w-full flex items-center justify-center gap-2 px-4 py-2 text-muted font-medium rounded-md border border-subtle hover:text-primary hover:border-default transition-colors disabled:opacity-50"
-        >
-          <RotateCcw className="w-3.5 h-3.5" />
-          Reset Mission
-        </button>
-      </div>
-
-      <div className="pt-2 text-[10px] text-faint text-center">
-        Units: {speedLabel(inputs.speedUnit)} · {speedLabel(inputs.windSpeedUnit)} · km
-      </div>
-    </div>
+      <button type="submit" className="primary-button"><Crosshair size={16} />Calculate search area</button>
+    </form>
   );
 }

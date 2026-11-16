@@ -4,21 +4,20 @@ import { calculate } from '@/lib/calculations';
 import { BarChart3, Play, Ruler, Clock, Wind, Navigation, GitCompare } from 'lucide-react';
 
 interface SearchAnalysisProps {
-  baseInputs: MissionInputs;
   baseResult: CalculationResult | null;
-  onRunScenarios: (inputs: MissionInputs[]) => void;
+  onCompare: (results: ScenarioResult[]) => void;
   scenarios: ScenarioResult[];
 }
 
-export default function SearchAnalysis({ baseInputs, baseResult, onRunScenarios, scenarios }: SearchAnalysisProps) {
-  const [uncertaintyMod, setUncertaintyMod] = useState(baseInputs.positionUncertaintyKm || 8);
+export default function SearchAnalysis({ baseResult, onCompare, scenarios }: SearchAnalysisProps) {
+  const [uncertaintyMod, setUncertaintyMod] = useState(8);
   const [elapsedMod, setElapsedMod] = useState(0);
   const [windMod, setWindMod] = useState(0);
   const [headingMod, setHeadingMod] = useState(0);
-  const [localScenarios, setLocalScenarios] = useState<ScenarioResult[]>(scenarios);
 
   const runComparison = () => {
     if (!baseResult) return;
+    const baseInputs = baseResult.inputs;
 
     // Scenario A: increased uncertainty
     const scenarioA: MissionInputs = {
@@ -36,28 +35,27 @@ export default function SearchAnalysis({ baseInputs, baseResult, onRunScenarios,
       heading: ((baseInputs.heading + headingMod) % 360 + 360) % 360,
     };
 
-    const resultA = calculate(scenarioA, baseResult.isSimulated);
-    const resultB = calculate(scenarioB, baseResult.isSimulated);
+    const resultA = calculate(scenarioA, baseResult.isSimulated, new Date(baseResult.calculationTimeUTC));
+    const resultB = calculate(scenarioB, baseResult.isSimulated, new Date(baseResult.calculationTimeUTC));
 
     const results: ScenarioResult[] = [
       { label: 'Base Case', result: baseResult },
       { label: 'Modified Uncertainty', result: resultA },
-      { label: 'Modified Time/Wind/Heading', result: resultB },
+      { label: 'Modified flight and wind', result: resultB },
     ];
-    setLocalScenarios(results);
-    onRunScenarios([scenarioA, scenarioB]);
+    onCompare(results);
   };
 
-  const scenariosToShow = localScenarios.length > 0 ? localScenarios : scenarios;
+  const largestArea = Math.max(1, ...scenarios.map(({ result }) => result.searchAreaKm2));
 
   return (
-    <div className="h-full overflow-y-auto p-4">
+    <div className="analysis-page">
       <div className="max-w-5xl mx-auto space-y-4">
         {/* Header */}
         <div className="flex items-center gap-3">
           <BarChart3 className="w-6 h-6 text-cyan" />
           <div>
-            <h1 className="text-xl font-bold text-primary">Search Analysis</h1>
+            <h1 className="secondary-title">Search analysis</h1>
             <p className="text-xs text-muted">Compare scenarios using the same calculation engine</p>
           </div>
         </div>
@@ -140,15 +138,23 @@ export default function SearchAnalysis({ baseInputs, baseResult, onRunScenarios,
             </div>
 
             {/* Results Table */}
-            {scenariosToShow.length > 0 && (
+            {scenarios.length > 0 && (
               <div className="bg-panel rounded-lg border border-subtle p-4 animate-fade-in">
-                <h2 className="text-sm font-semibold text-primary mb-3">Comparison Results</h2>
+                <h2 className="text-lg font-semibold text-primary mb-3">Scenario comparison</h2>
+                <ul className="scenario-bars" aria-label="Estimated search area by scenario">
+                  {scenarios.map(({ label, result }) => (
+                    <li key={label}>
+                      <div><span>{label}</span><strong>{result.searchAreaKm2.toLocaleString(undefined, { maximumFractionDigits: 1 })} km²</strong></div>
+                      <meter aria-label={label} min={0} max={largestArea} value={result.searchAreaKm2} />
+                    </li>
+                  ))}
+                </ul>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-subtle">
                         <th className="text-left py-2 px-3 text-xs font-semibold text-muted uppercase tracking-wider">Metric</th>
-                        {scenariosToShow.map((s, i) => (
+                        {scenarios.map((s, i) => (
                           <th key={i} className="text-right py-2 px-3 text-xs font-semibold text-primary uppercase tracking-wider">
                             {s.label}
                           </th>
@@ -160,7 +166,7 @@ export default function SearchAnalysis({ baseInputs, baseResult, onRunScenarios,
                         <td className="py-2 px-3 text-muted flex items-center gap-2">
                           <Ruler className="w-3.5 h-3.5 text-cyan" /> Search Area
                         </td>
-                        {scenariosToShow.map((s, i) => (
+                        {scenarios.map((s, i) => (
                           <td key={i} className="text-right py-2 px-3 text-primary font-semibold">
                             {s.result.searchAreaKm2 >= 1000
                               ? `${(s.result.searchAreaKm2 / 1000).toFixed(2)}k km²`
@@ -172,7 +178,7 @@ export default function SearchAnalysis({ baseInputs, baseResult, onRunScenarios,
                         <td className="py-2 px-3 text-muted flex items-center gap-2">
                           <Clock className="w-3.5 h-3.5 text-cyan" /> Elapsed Time
                         </td>
-                        {scenariosToShow.map((s, i) => (
+                        {scenarios.map((s, i) => (
                           <td key={i} className="text-right py-2 px-3 text-primary">{s.result.elapsedTimeLabel}</td>
                         ))}
                       </tr>
@@ -180,7 +186,7 @@ export default function SearchAnalysis({ baseInputs, baseResult, onRunScenarios,
                         <td className="py-2 px-3 text-muted flex items-center gap-2">
                           <Navigation className="w-3.5 h-3.5 text-cyan" /> Nominal Distance
                         </td>
-                        {scenariosToShow.map((s, i) => (
+                        {scenarios.map((s, i) => (
                           <td key={i} className="text-right py-2 px-3 text-primary">{s.result.nominalDistanceLabel}</td>
                         ))}
                       </tr>
@@ -188,7 +194,7 @@ export default function SearchAnalysis({ baseInputs, baseResult, onRunScenarios,
                         <td className="py-2 px-3 text-muted flex items-center gap-2">
                           <Wind className="w-3.5 h-3.5 text-cyan" /> Wind Drift
                         </td>
-                        {scenariosToShow.map((s, i) => (
+                        {scenarios.map((s, i) => (
                           <td key={i} className="text-right py-2 px-3 text-primary">{s.result.windDriftKm.toFixed(1)} km</td>
                         ))}
                       </tr>
@@ -196,7 +202,7 @@ export default function SearchAnalysis({ baseInputs, baseResult, onRunScenarios,
                         <td className="py-2 px-3 text-muted flex items-center gap-2">
                           <Ruler className="w-3.5 h-3.5 text-cyan" /> Uncertainty Radius
                         </td>
-                        {scenariosToShow.map((s, i) => (
+                        {scenarios.map((s, i) => (
                           <td key={i} className="text-right py-2 px-3 text-primary">{s.result.positionUncertaintyKm} km</td>
                         ))}
                       </tr>
@@ -204,18 +210,6 @@ export default function SearchAnalysis({ baseInputs, baseResult, onRunScenarios,
                   </table>
                 </div>
 
-                {scenariosToShow.length >= 2 && (
-                  <div className="mt-4 p-3 bg-elevated rounded-md border border-subtle">
-                    <h3 className="text-xs font-semibold text-primary mb-1">Area Difference</h3>
-                    <p className="text-sm text-muted">
-                      {(scenariosToShow[1].result.searchAreaKm2 - scenariosToShow[0].result.searchAreaKm2).toFixed(1)} km²
-                      {' '}
-                      between {scenariosToShow[0].label} and {scenariosToShow[1].label}.
-                      {' '}
-                      ({(((scenariosToShow[1].result.searchAreaKm2 - scenariosToShow[0].result.searchAreaKm2) / Math.max(scenariosToShow[0].result.searchAreaKm2, 0.01)) * 100).toFixed(1)}%)
-                    </p>
-                  </div>
-                )}
               </div>
             )}
 

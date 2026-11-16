@@ -9,7 +9,7 @@ export default function MapLegend() {
   ];
 
   return (
-    <div className="absolute bottom-3 left-3 z-[500] bg-panel/90 backdrop-blur border border-subtle rounded-md p-3 shadow-panel max-w-[200px]">
+    <div className="absolute top-3 right-3 z-[500] bg-panel/90 backdrop-blur border border-subtle rounded-md p-3 shadow-panel max-w-[200px]">
       <div className="flex items-center gap-1.5 mb-2">
         <Layers className="w-3.5 h-3.5 text-cyan" />
         <h4 className="text-[11px] font-semibold text-primary uppercase tracking-wide">Legend</h4>

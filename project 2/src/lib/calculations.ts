@@ -42,11 +42,12 @@ export function kmToNm(km: number): number {
 
 // --- Main calculation engine ---
 
-const REFERENCE_TIME = new Date('2026-10-09T14:00:00Z'); // Current date as reference
+const REFERENCE_TIME = new Date('2026-10-09T14:00:00Z'); // Fixed reference for the example mission
 
 export function calculate(
   inputs: MissionInputs,
-  isSimulated = false
+  isSimulated = false,
+  calculationTime = new Date()
 ): CalculationResult {
   const warnings: string[] = [];
   const assumptions: string[] = [];
@@ -55,7 +56,7 @@ export function calculate(
 
   const lkP: LatLng = { lat: inputs.lat, lon: inputs.lon };
   const lastContact = new Date(inputs.timestamp);
-  const now = new Date(); // Use current time as reference
+  const now = calculationTime;
   const refTime = isSimulated ? REFERENCE_TIME : now;
 
   // Elapsed time

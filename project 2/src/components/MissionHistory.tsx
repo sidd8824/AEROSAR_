@@ -3,19 +3,20 @@ import { History, Trash2, FileText, MapPin, Clock, ArrowUpRight } from 'lucide-r
 
 interface MissionHistoryProps {
   missions: SavedMission[];
+  sessionOnly: boolean;
   onOpen: (m: SavedMission) => void;
   onDelete: (id: string) => void;
 }
 
-export default function MissionHistory({ missions, onOpen, onDelete }: MissionHistoryProps) {
+export default function MissionHistory({ missions, sessionOnly, onOpen, onDelete }: MissionHistoryProps) {
   return (
     <div className="h-full overflow-y-auto p-4">
       <div className="max-w-3xl mx-auto space-y-4">
         <div className="flex items-center gap-3">
           <History className="w-6 h-6 text-cyan" />
           <div>
-            <h1 className="text-xl font-bold text-primary">Mission History</h1>
-            <p className="text-xs text-muted">Saved mission snapshots stored locally in your browser</p>
+            <h1 className="secondary-title">Mission history</h1>
+            <p className="text-xs text-muted">{sessionOnly ? 'Saved missions for this demo session' : 'Saved missions stored in this browser'}</p>
           </div>
         </div>
 
@@ -32,13 +33,13 @@ export default function MissionHistory({ missions, onOpen, onDelete }: MissionHi
             {missions.map((m) => (
               <div
                 key={m.id}
-                className="bg-panel rounded-lg border border-subtle p-4 flex items-center gap-4 hover:border-default transition-colors group"
+                className="bg-panel rounded-lg border border-subtle p-4 flex flex-wrap items-center gap-4 hover:border-default transition-colors group"
               >
                 <div className="flex-shrink-0 w-10 h-10 rounded-md bg-cyan-dim border border-cyan/20 flex items-center justify-center">
                   <FileText className="w-5 h-5 text-cyan" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
+                  <div className="flex flex-wrap items-center gap-2 mb-1">
                     <span className="text-sm font-semibold text-primary">{m.label}</span>
                     <span className="text-[10px] text-faint font-mono">{m.ref}</span>
                     {m.result.isSimulated && (
