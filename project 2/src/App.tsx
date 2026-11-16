@@ -205,6 +205,13 @@ export default function App() {
     return inputs[field] !== result.inputs[field];
   });
 
+  const validPosition = Number.isFinite(inputs.lat) && Number.isFinite(inputs.lon) &&
+    Math.abs(inputs.lat) <= 90 && Math.abs(inputs.lon) <= 180;
+  const draftPosition = validPosition && (!result ||
+    inputs.lat !== result.lastKnownPosition.lat || inputs.lon !== result.lastKnownPosition.lon)
+    ? { lat: inputs.lat, lon: inputs.lon }
+    : null;
+
   return (
     <div className="command-shell">
       <TopNav
@@ -244,14 +251,14 @@ export default function App() {
                 </div>
                 <div className="map-stage">
                   <SARMap result={result} fitTrigger={fitTrigger} centerTrigger={centerTrigger}
-                    flyTrigger={flyTrigger} onMapClick={(lat, lon) => {
+                    flyTrigger={flyTrigger} draftPosition={draftPosition} onMapClick={(lat, lon) => {
                       handleInputChange('lat', Number(lat.toFixed(5)));
                       handleInputChange('lon', Number(lon.toFixed(5)));
                     }} />
                   {showLegend && result && <MapLegend />}
                 </div>
                 <div className="map-footer">
-                  <span className="map-coordinate"><MapPin size={14} />{result ? `${result.lastKnownPosition.lat.toFixed(3)}°, ${result.lastKnownPosition.lon.toFixed(3)}°` : 'Awaiting mission inputs'}</span>
+                  <span className="map-coordinate"><MapPin size={14} />{validPosition ? `${inputs.lat.toFixed(3)}°, ${inputs.lon.toFixed(3)}°${draftPosition ? ' · Draft' : ''}` : 'Awaiting mission inputs'}</span>
                   <div className="map-actions">
                     <button className="light-button" disabled={!result} onClick={handleFitMap}><Focus size={15} />Fit area</button>
                     <button className="light-button" disabled={!result} onClick={handleCenterLKP}><Crosshair size={15} />Last position</button>
