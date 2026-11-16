@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { MapContainer, TileLayer, Polygon, Polyline, Marker, Circle, ScaleControl, useMap, Tooltip as LeafletTooltip } from 'react-leaflet';
+import { MapContainer, TileLayer, Polygon, Polyline, Marker, Circle, ScaleControl, ZoomControl, useMap, Tooltip as LeafletTooltip } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import type { CalculationResult } from '@/types';
@@ -104,7 +104,7 @@ function FitBounds({ result, trigger }: { result: CalculationResult | null; trig
     bounds.extend([result.estimatedPosition.lat, result.estimatedPosition.lon]);
 
     if (bounds.isValid()) {
-      map.fitBounds(bounds, { padding: [40, 40] });
+      map.fitBounds(bounds, { padding: [45, 45], maxZoom: 14, animate: false });
     }
   }, [result, trigger, map]);
 
@@ -128,7 +128,7 @@ function MapResizer() {
   const map = useMap();
   useEffect(() => {
     const container = map.getContainer();
-    const resize = () => map.invalidateSize();
+    const resize = () => map.invalidateSize({ pan: false });
     resize();
     const timer = setTimeout(resize, 200);
 
@@ -149,7 +149,8 @@ function ClickHandler({ onClick }: { onClick: (lat: number, lon: number) => void
   const map = useMap();
   useEffect(() => {
     const handler = (e: L.LeafletMouseEvent) => {
-      onClick(e.latlng.lat, e.latlng.lng);
+      const position = e.latlng.wrap();
+      onClick(position.lat, position.lng);
     };
     map.on('click', handler);
     return () => { map.off('click', handler); };
@@ -324,7 +325,7 @@ export default function SARMap({ result, fitTrigger, centerTrigger, flyTrigger, 
         zoom={8}
         style={{ height: '100%', width: '100%', minHeight: '300px' }}
         className="h-full w-full"
-        zoomControl={true}
+        zoomControl={false}
         attributionControl={true}
         worldCopyJump={true}
       >
@@ -336,6 +337,7 @@ export default function SARMap({ result, fitTrigger, centerTrigger, flyTrigger, 
           maxZoom={layer.maxZoom}
           detectRetina={true}
         />
+        <ZoomControl position="bottomleft" />
         <ScaleControl position="bottomright" imperial={false} />
         <MapResizer />
         <ClickHandler onClick={handleMapClick} />
@@ -458,6 +460,7 @@ export default function SARMap({ result, fitTrigger, centerTrigger, flyTrigger, 
       {/* Layer switcher button */}
       <div className="absolute top-3 left-3 z-[500]">
         <button
+          aria-expanded={showLayerSwitcher}
           onClick={() => setShowLayerSwitcher((s) => !s)}
           className="flex items-center gap-1.5 px-3 py-1.5 bg-panel/90 backdrop-blur border border-subtle rounded-md text-xs text-primary hover:bg-elevated transition-colors shadow-panel"
           title="Switch map layer"

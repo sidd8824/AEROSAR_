@@ -7,20 +7,18 @@ import { calculate, DEMO_MISSION, speedLabel } from '@/lib/calculations';
 import { validateInputs } from '@/lib/validation';
 import { exportGeoJSON, downloadFile, printReport, loadMissions, saveMission, deleteMission, generateMissionId } from '@/lib/export';
 import TopNav from '@/components/TopNav';
-import Sidebar from '@/components/Sidebar';
 import MissionInputForm from '@/components/MissionInputForm';
 import SARMap from '@/components/SARMap';
 import IntelligencePanel from '@/components/IntelligencePanel';
-import EmptyState from '@/components/EmptyState';
 import MapLegend from '@/components/MapLegend';
-import AboutDialog from '@/components/AboutDialog';
 import SearchAnalysis from '@/components/SearchAnalysis';
 import MissionHistory from '@/components/MissionHistory';
-import { Radio, Loader2, Play } from 'lucide-react';
+import { Crosshair, FlaskConical, Focus, Layers, Loader2, MapPin, Play, Radio, RotateCcw } from 'lucide-react';
+import MissionMetrics from '@/components/MissionMetrics';
 
 const EMPTY_INPUTS: MissionInputs = {
-  lat: 0,
-  lon: 0,
+  lat: Number.NaN,
+  lon: Number.NaN,
   timestamp: '',
   heading: 0,
   speed: 0,
@@ -34,22 +32,22 @@ const EMPTY_INPUTS: MissionInputs = {
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
-  const [authReady, setAuthReady] = useState(false);
+  const [authReady, setAuthReady] = useState(!supabase);
+  const [demoMode, setDemoMode] = useState(!supabase);
   const [page, setPage] = useState<Page>('mission-control');
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [inputs, setInputs] = useState<MissionInputs>(EMPTY_INPUTS);
-  const [result, setResult] = useState<CalculationResult | null>(null);
-  const [calculating, setCalculating] = useState(false);
+  const [inputs, setInputs] = useState<MissionInputs>(() => supabase ? EMPTY_INPUTS : DEMO_MISSION);
+  const [result, setResult] = useState<CalculationResult | null>(() => supabase ? null : calculate(DEMO_MISSION, true));
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [fitTrigger, setFitTrigger] = useState(0);
+  const [fitTrigger, setFitTrigger] = useState(1);
   const [centerTrigger, setCenterTrigger] = useState(0);
   const [flyTrigger, setFlyTrigger] = useState(-1);
-  const [aboutOpen, setAboutOpen] = useState(false);
   const [missions, setMissions] = useState<SavedMission[]>([]);
   const [scenarios, setScenarios] = useState<ScenarioResult[]>([]);
-  const [showLegend, setShowLegend] = useState(true);
+  const [showLegend, setShowLegend] = useState(false);
+  const [notice, setNotice] = useState('');
 
   useEffect(() => {
+    if (!supabase) return;
     let mounted = true;
 
     supabase.auth.getSession().then(({ data }) => {
@@ -80,51 +78,47 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (session) setMissions(loadMissions());
+    setMissions(session ? loadMissions() : []);
   }, [session]);
-
-  const handleSignOut = useCallback(() => {
-    supabase.auth.signOut();
-    setSession(null);
-    setResult(null);
-    setInputs(EMPTY_INPUTS);
-  }, []);
-
-  const handleCalculate = useCallback(() => {
-    const errs = validateInputs(inputs);
-    if (errs.length > 0) {
-      const map: Record<string, string> = {};
-      errs.forEach((e) => { map[e.field] = e.message; });
-      setErrors(map);
-      return;
-    }
-    setErrors({});
-    setCalculating(true);
-    setTimeout(() => {
-      const r = calculate(inputs, false);
-      setResult(r);
-      setCalculating(false);
-      setFitTrigger((t) => t + 1);
-    }, 400);
-  }, [inputs]);
-
-  const handleDemo = useCallback(() => {
-    setInputs(DEMO_MISSION);
-    setErrors({});
-    setCalculating(true);
-    setTimeout(() => {
-      const r = calculate(DEMO_MISSION, true);
-      setResult(r);
-      setCalculating(false);
-      setFitTrigger((t) => t + 1);
-    }, 400);
-  }, []);
 
   const handleReset = useCallback(() => {
     setInputs(EMPTY_INPUTS);
     setResult(null);
     setErrors({});
     setScenarios([]);
+    setNotice('');
+    setFlyTrigger(-1);
+  }, []);
+
+  const handleSignOut = useCallback(() => {
+    if (session) void supabase?.auth.signOut();
+    setSession(null);
+    setDemoMode(false);
+    setPage('mission-control');
+    handleReset();
+  }, [session, handleReset]);
+
+  const handleCalculate = useCallback(() => {
+    const validation = validateInputs(inputs);
+    setErrors(Object.fromEntries(validation.map(({ field, message }) => [field, message])));
+    if (validation.length) {
+      setNotice('Check the highlighted mission inputs.');
+      requestAnimationFrame(() => document.querySelector<HTMLElement>('.mission-field[aria-invalid="true"]')?.focus());
+      return;
+    }
+    setNotice('');
+    setScenarios([]);
+    setResult(calculate(inputs, inputs === DEMO_MISSION));
+    setFitTrigger((trigger) => trigger + 1);
+  }, [inputs]);
+
+  const handleDemo = useCallback(() => {
+    setInputs(DEMO_MISSION);
+    setErrors({});
+    setNotice('');
+    setScenarios([]);
+    setResult(calculate(DEMO_MISSION, true));
+    setFitTrigger((trigger) => trigger + 1);
   }, []);
 
   const handleInputChange = useCallback((field: keyof MissionInputs, value: string | number) => {
@@ -156,21 +150,29 @@ export default function App() {
       result,
       label: result.isSimulated ? 'Demo Mission' : 'Custom Mission',
     };
-    saveMission(mission);
-    setMissions(loadMissions());
-  }, [result]);
+    if (session) {
+      saveMission(mission);
+      setMissions(loadMissions());
+    } else {
+      setMissions((current) => [mission, ...current]);
+    }
+    setNotice(session ? 'Mission saved to history on this device.' : 'Mission saved for this demo session.');
+  }, [result, session]);
 
   const handleOpenMission = useCallback((mission: SavedMission) => {
     setInputs(mission.inputs);
     setResult(mission.result);
+    setErrors({});
+    setScenarios([]);
+    setNotice('');
     setPage('mission-control');
     setFitTrigger((t) => t + 1);
   }, []);
 
   const handleDeleteMission = useCallback((id: string) => {
-    deleteMission(id);
-    setMissions(loadMissions());
-  }, []);
+    if (session) deleteMission(id);
+    setMissions((current) => current.filter((mission) => mission.id !== id));
+  }, [session]);
 
   const handlePrintReport = useCallback(() => {
     if (result) printReport(result);
@@ -183,14 +185,6 @@ export default function App() {
     }
   }, [result]);
 
-  const handleRunScenarios = useCallback((scenarioInputs: MissionInputs[]) => {
-    const results: ScenarioResult[] = scenarioInputs.map((si, idx) => {
-      const r = calculate(si, inputs === DEMO_MISSION || si === DEMO_MISSION);
-      return { label: `Scenario ${idx + 1}`, result: r };
-    });
-    setScenarios(results);
-  }, [inputs]);
-
   if (!authReady) {
     return (
       <div className="h-screen w-screen flex items-center justify-center bg-base">
@@ -199,140 +193,105 @@ export default function App() {
     );
   }
 
-  if (!session) {
-    return <AuthScreen onAuthed={(s) => setSession(s)} />;
+  if (!session && !demoMode) {
+    return <AuthScreen onAuthed={setSession} onDemo={() => {
+      handleDemo();
+      setDemoMode(true);
+    }} />;
   }
 
+  const hasPendingEdits = result && Object.keys(inputs).some((key) => {
+    const field = key as keyof MissionInputs;
+    return inputs[field] !== result.inputs[field];
+  });
+
   return (
-    <div className="h-screen w-screen flex flex-col bg-base text-primary overflow-hidden">
+    <div className="command-shell">
       <TopNav
         currentPage={page}
-        onNavigate={setPage}
-        onToggleSidebar={() => setSidebarOpen((s) => !s)}
+        onNavigate={(nextPage) => { setPage(nextPage); setFlyTrigger(-1); }}
         onSignOut={handleSignOut}
-        userEmail={session.user.email}
+        userEmail={session?.user.email}
+        canSignIn={!!supabase}
       />
 
-      <div className="flex flex-1 overflow-hidden">
-        <Sidebar
-          currentPage={page}
-          onNavigate={(p) => { setPage(p); setSidebarOpen(false); }}
-          isOpen={sidebarOpen}
-          onClose={() => setSidebarOpen(false)}
-          hasResult={!!result}
-        />
-
-        <main className="flex-1 overflow-hidden relative" key={page}>
-          {page === 'mission-control' && (
-            <>
-              {result || calculating ? (
-                <div className="h-full flex flex-col lg:flex-row gap-2 p-2 overflow-hidden animate-fly-in">
-                  {/* Mission Inputs */}
-                  <div className="w-full lg:w-[22%] min-w-[280px] max-h-[40%] lg:max-h-full overflow-y-auto">
-                    <MissionInputForm
-                      inputs={inputs}
-                      errors={errors}
-                      onChange={handleInputChange}
-                      onCalculate={handleCalculate}
-                      onDemo={handleDemo}
-                      onReset={handleReset}
-                      calculating={calculating}
-                    />
-                  </div>
-
-                  {/* Map */}
-                  <div className="flex-1 relative rounded-lg overflow-hidden border border-subtle shadow-elevated min-h-[300px] h-full">
-                    {calculating ? (
-                      <div className="absolute inset-0 flex flex-col items-center justify-center bg-base z-[1000]">
-                        <Loader2 className="w-8 h-8 text-cyan animate-spin-sm mb-3" />
-                        <span className="text-muted text-sm">Calculating search area…</span>
-                      </div>
-                    ) : (
-                      <>
-                        <SARMap
-                          result={result}
-                          fitTrigger={fitTrigger}
-                          centerTrigger={centerTrigger}
-                          flyTrigger={flyTrigger}
-                          onMapClick={(lat, lon) => {
-                            handleInputChange('lat', lat);
-                            handleInputChange('lon', lon);
-                          }}
-                        />
-                        {/* Map controls */}
-                        <div className="absolute top-3 right-3 z-[500] flex flex-col gap-2">
-                          <button
-                            onClick={handleFlyRoute}
-                            className="flex items-center gap-1.5 px-3 py-1.5 bg-panel/90 backdrop-blur border border-subtle rounded-md text-xs text-primary hover:bg-elevated transition-colors shadow-panel"
-                            title="Animate aircraft flying the mission route"
-                          >
-                            <Play className="w-3.5 h-3.5 text-cyan" />
-                            Fly Route
-                          </button>
-                          <button
-                            onClick={handleFitMap}
-                            className="px-3 py-1.5 bg-panel/90 backdrop-blur border border-subtle rounded-md text-xs text-primary hover:bg-elevated transition-colors shadow-panel"
-                            title="Fit map to search area"
-                          >
-                            Fit Search Area
-                          </button>
-                          <button
-                            onClick={handleCenterLKP}
-                            className="px-3 py-1.5 bg-panel/90 backdrop-blur border border-subtle rounded-md text-xs text-primary hover:bg-elevated transition-colors shadow-panel"
-                            title="Return to last known position"
-                          >
-                            Return to LKP
-                          </button>
-                          <button
-                            onClick={() => setShowLegend((s) => !s)}
-                            className="px-3 py-1.5 bg-panel/90 backdrop-blur border border-subtle rounded-md text-xs text-primary hover:bg-elevated transition-colors shadow-panel"
-                          >
-                            {showLegend ? 'Hide' : 'Show'} Legend
-                          </button>
-                        </div>
-                        {showLegend && result && (
-                          <MapLegend />
-                        )}
-                      </>
-                    )}
-                  </div>
-
-                  {/* Intelligence Panel */}
-                  <div className="w-full lg:w-[20%] min-w-[260px] max-h-[40%] lg:max-h-full overflow-y-auto">
-                    {result && (
-                      <IntelligencePanel
-                        result={result}
-                        onSaveMission={handleSaveMission}
-                        onPrintReport={handlePrintReport}
-                        onExportGeoJSON={handleExportGeoJSON}
-                        onGoToAnalysis={() => setPage('search-analysis')}
-                      />
-                    )}
+      <main className="command-main" key={page}>
+        {page === 'mission-control' && (
+          <>
+            <div className="workspace-title">
+              <div>
+                <h1>Mission control</h1>
+                <p>Plot an aircraft’s last known position and estimate where to search.</p>
+              </div>
+              <div className="workspace-actions">
+                <button className="light-button" onClick={handleReset}><RotateCcw size={15} />New mission</button>
+                <button className="light-button demo-button" onClick={handleDemo}><FlaskConical size={15} />Load example</button>
+              </div>
+            </div>
+            <div className="mission-state" aria-live="polite">
+              <span className="state-label"><span />{result?.isSimulated ? 'Example mission' : result ? 'Mission estimate' : 'New mission'}</span>
+              {result && <span className="mission-id">{result.missionRef}</span>}
+              <span className="mission-notice" role="status">{notice || (hasPendingEdits ? 'Inputs changed. Recalculate to update the map.' : '')}</span>
+            </div>
+            <MissionMetrics result={result} />
+            <div className="workspace-grid">
+              <section className="map-card" aria-label="Search map">
+                <div className="card-heading">
+                  <div><h2>Search map</h2><p>Select the last known position directly on the map.</p></div>
+                  <button className="light-button" disabled={!result} aria-pressed={showLegend && !!result} onClick={() => setShowLegend((visible) => !visible)}>
+                    <Layers size={15} />Legend
+                  </button>
+                </div>
+                <div className="map-stage">
+                  <SARMap result={result} fitTrigger={fitTrigger} centerTrigger={centerTrigger}
+                    flyTrigger={flyTrigger} onMapClick={(lat, lon) => {
+                      handleInputChange('lat', Number(lat.toFixed(5)));
+                      handleInputChange('lon', Number(lon.toFixed(5)));
+                    }} />
+                  {showLegend && result && <MapLegend />}
+                </div>
+                <div className="map-footer">
+                  <span className="map-coordinate"><MapPin size={14} />{result ? `${result.lastKnownPosition.lat.toFixed(3)}°, ${result.lastKnownPosition.lon.toFixed(3)}°` : 'Awaiting mission inputs'}</span>
+                  <div className="map-actions">
+                    <button className="light-button" disabled={!result} onClick={handleFitMap}><Focus size={15} />Fit area</button>
+                    <button className="light-button" disabled={!result} onClick={handleCenterLKP}><Crosshair size={15} />Last position</button>
+                    <button className="light-button" disabled={!result} onClick={handleFlyRoute}><Play size={15} />Fly route</button>
                   </div>
                 </div>
-              ) : (
-                <EmptyState onDemo={handleDemo} onNewMission={() => {
-                  setInputs({ ...EMPTY_INPUTS, timestamp: new Date().toISOString().slice(0, 16) });
-                }} />
-              )}
-            </>
-          )}
+              </section>
+              <section className="input-card" aria-label="Mission inputs">
+                <div className="card-heading">
+                  <div><h2>Mission inputs</h2><p>Last contact, aircraft and wind.</p></div>
+                </div>
+                <MissionInputForm inputs={inputs} errors={errors} onChange={handleInputChange} onCalculate={handleCalculate} />
+              </section>
+            </div>
+            {result && (
+              <section className="results-section" aria-label="Mission results">
+                <IntelligencePanel result={result} onSaveMission={handleSaveMission}
+                  onPrintReport={handlePrintReport} onExportGeoJSON={handleExportGeoJSON}
+                  onGoToAnalysis={() => setPage('search-analysis')} />
+              </section>
+            )}
+            <footer className="workspace-footer">AeroSAR is a prototype for simulated search planning.</footer>
+          </>
+        )}
 
           {page === 'search-analysis' && (
-            <div key="search-analysis" className="h-full animate-fly-in">
+            <div className="secondary-workspace">
             <SearchAnalysis
-              baseInputs={inputs}
               baseResult={result}
-              onRunScenarios={handleRunScenarios}
+              onCompare={setScenarios}
               scenarios={scenarios}
             />
             </div>
           )}
 
           {page === 'mission-history' && (
-            <div key="mission-history" className="h-full animate-fly-in">
+            <div className="secondary-workspace">
             <MissionHistory
               missions={missions}
+              sessionOnly={!session}
               onOpen={handleOpenMission}
               onDelete={handleDeleteMission}
             />
@@ -405,10 +364,7 @@ export default function App() {
               </div>
             </div>
           )}
-        </main>
-      </div>
-
-      <AboutDialog open={aboutOpen} onClose={() => setAboutOpen(false)} />
+      </main>
     </div>
   );
 }
